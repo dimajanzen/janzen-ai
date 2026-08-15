@@ -31,6 +31,12 @@ Regel: immer klein, englisch, Singular-Nomen. Status = Ort (nicht Tag).
 - Personen: `@name` · Mehrwort: `mit-bindestrich` · sonst: klein, englisch, Singular
 - Status = Ort (Unsorted → To-Explore → Bereich → Archiv), keine Status-Tags mehr
 
+### Roll-up + Prune (erledigt ✅) — 331 -> 100 Tags
+- Regel: alles >=20x bleibt; alles <20x in Oberbegriff eingerollt oder geloescht.
+- 214 Renames, 21 Deletes; Mapping siehe `raindrop-tag-mapping.tsv`.
+- 7 neue Oberbegriffe: dev(252) leadership(84) productivity(59) media(33) health(19) legal(15) support(13)
+- @Personen bleiben (@dima, @karpathy, ...).
+
 ### Kern-Vokabular (Referenz)
 - 🤖 Tech/Tools: ai agents llm claude codex cursor mcp rag n8n dotnet react docker api prompts memory obsidian crawling
 - 📈 GTM/Sales/Mktg: sales marketing seo gtm content outbound cold-calling crm icp pricing abm
