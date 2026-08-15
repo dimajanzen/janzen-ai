@@ -27,6 +27,21 @@ req() {
     -H "Content-Type: application/json" "$@"
 }
 
+# Robuster GET mit Retry/Backoff bei Rate-Limit oder ungültigem JSON.
+# Gibt gültiges JSON auf stdout, sonst leer + Rueckgabecode 1.
+req_retry() {
+  local path="$1" tries="${2:-6}" i=0 resp
+  while [[ $i -lt $tries ]]; do
+    resp="$(curl -sS "$API$path" -H "Authorization: Bearer $RAINDROP_TOKEN" -H "Content-Type: application/json" 2>/dev/null || true)"
+    if printf '%s' "$resp" | jq -e '.items' >/dev/null 2>&1; then
+      printf '%s' "$resp"; return 0
+    fi
+    i=$((i+1))
+    sleep $((i))   # linearer Backoff: 1s,2s,3s ...
+  done
+  return 1
+}
+
 usage() {
   cat >&2 <<'EOF'
 Usage: raindrop.sh <command> [args]
@@ -131,15 +146,30 @@ case "$cmd" in
     kids="$(req GET "/collections/childrens" | jq '.items')"
     page=0; itemsfile="$(mktemp)"; echo "[]" > "$itemsfile"
     total=0
-    while :; do
-      resp="$(req GET "/raindrops/-1?perpage=50&page=$page&sort=-created")"
-      cnt="$(echo "$resp" | jq '.items | length')"
-      [[ "$cnt" -eq 0 ]] && break
-      jq -s '.[0] + .[1].items' "$itemsfile" <(echo "$resp") > "$itemsfile.tmp" && mv "$itemsfile.tmp" "$itemsfile"
-      total=$((total+cnt))
-      echo "#   Seite $page: +$cnt (gesamt $total)" >&2
-      page=$((page+1))
+    # Pro Collection ueber MEHRERE Sortierungen sammeln + per _id dedupen.
+    # Grund: bei gleichen created-Timestamps ueberspringt eine einzelne Sortierung
+    # an Seitengrenzen Eintraege. Die Union mehrerer Sortierungen faengt alle.
+    SORTS=("-created" "-sort" "title" "domain")
+    allcols="$(jq -n --argjson r "$cols" --argjson k "$kids" '($r + $k) | map(._id) | unique | .[]')"
+    for col in $allcols; do
+      before="$(jq 'length' "$itemsfile")"
+      for s in "${SORTS[@]}"; do
+        page=0
+        while :; do
+          if ! resp="$(req_retry "/raindrops/$col?perpage=50&page=$page&sort=$s")"; then
+            echo "#   WARN: Collection $col sort $s Seite $page fehlgeschlagen – uebersprungen" >&2
+            break
+          fi
+          cnt="$(printf '%s' "$resp" | jq '.items | length')"
+          [[ "$cnt" -eq 0 ]] && break
+          jq -s '(.[0] + .[1].items) | unique_by(._id)' "$itemsfile" <(printf '%s' "$resp") > "$itemsfile.tmp" && mv "$itemsfile.tmp" "$itemsfile"
+          page=$((page+1))
+        done
+      done
+      after="$(jq 'length' "$itemsfile")"
+      echo "#   Collection $col: +$((after-before)) (unique gesamt $after)" >&2
     done
+    total="$(jq 'length' "$itemsfile")"
     jq -n --argjson cols "$cols" --argjson kids "$kids" \
       --slurpfile items "$itemsfile" --arg ts "$ts" \
       '{exported_at:$ts, collections:$cols, child_collections:$kids, raindrops:$items[0], count:($items[0]|length)}' > "$out"

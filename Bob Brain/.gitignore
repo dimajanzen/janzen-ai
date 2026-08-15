@@ -1,3 +1,7 @@
 .env
 *.local
 .DS_Store
+
+# Raindrop-Backups (persoenliche Daten, nur lokal)
+backups/
+*.log
