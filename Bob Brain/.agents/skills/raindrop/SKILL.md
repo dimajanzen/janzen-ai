@@ -36,11 +36,15 @@ Alle Aktionen laufen über ein Script:
 ```bash
 ./scripts/raindrop.sh collections               # alle Collections (mit Parent)
 ./scripts/raindrop.sh tree                       # Collections als Hierarchie
+./scripts/raindrop.sh collection <id>            # Infos zu EINER Collection
 ./scripts/raindrop.sh stats                      # Anzahl Links je Collection
-./scripts/raindrop.sh list [collectionId] [n]    # Bookmarks (0=Unsorted, -1=alle)
+./scripts/raindrop.sh list [colId] [n] [sort]    # Bookmarks (sort: -created, created, -sort ...)
 ./scripts/raindrop.sh get <id>                   # volle Details: excerpt, note, tags, highlights
 ./scripts/raindrop.sh search "begriff" [colId]   # Volltext-/Tag-Suche (#tag)
 ./scripts/raindrop.sh inbox [n]                  # ungesichtete Inbox-Items (ohne Status-Tag) + excerpt
+./scripts/raindrop.sh broken [colId]             # tote/broken Links finden
+./scripts/raindrop.sh duplicates [colId]         # doppelte URLs finden
+./scripts/raindrop.sh backup [zielordner]        # vollständiges Backup als JSON (default: backups/)
 ```
 
 ### Erfassen / Ändern

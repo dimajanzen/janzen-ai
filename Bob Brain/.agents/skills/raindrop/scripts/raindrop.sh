@@ -34,11 +34,15 @@ Usage: raindrop.sh <command> [args]
   -- Lesen / Suchen --
   collections                     Alle Collections (mit Baum/Parent)
   tree                            Collections als Hierarchie
-  list [collectionId] [perpage]   Bookmarks auflisten (0=Unsorted, -1=alle)
+  collection <id>                 Infos zu EINER Collection (Titel, Count)
+  list [collectionId] [n] [sort]  Bookmarks (0=Unsorted, -1=alle; sort z.B. -created, created, -sort)
   get <id>                        Volle Details eines Bookmarks (inkl. excerpt, note, highlights)
   search "<query>" [collectionId] Volltext-/Tag-Suche (#tag)
   inbox [n]                       Ungesichtete Inbox-Items (ohne Status-Tag) für Review, mit excerpt
   stats                           Übersicht: Anzahl je Collection
+  broken [collectionId]           Tote/broken Links finden
+  duplicates [collectionId]       Doppelte URLs finden
+  backup [zielordner]             Vollständiges Backup (Collections + alle Bookmarks) als JSON
 
   -- Erfassen / Ändern --
   add "<url>" ["title"] ["tag1,tag2"] [collectionId]
@@ -81,9 +85,67 @@ case "$cmd" in
       ( $k[] | select(.parent==$root.id) | "  └─ \(.title) (\(.count)) [id \(.id)]" )
     '
     ;;
+
+  collection)
+    id="${1:?id fehlt}"
+    req GET "/collection/$id" | jq '.item | {id: ._id, title, count, parent: (.parent["$id"] // null)}'
+    ;;
   list)
-    col="${1:-0}"; per="${2:-50}"
-    req GET "/raindrops/$col?perpage=$per" | jq '.items[] | {id: ._id, title, link, tags}'
+    col="${1:-0}"; per="${2:-50}"; sort="${3:-}"
+    req GET "/raindrops/$col?perpage=$per${sort:+&sort=$sort}" | jq '.items[] | {id: ._id, title, link, tags, created}'
+    ;;
+  broken)
+    col="${1:--1}"; page=0; found=0
+    while :; do
+      resp="$(req GET "/raindrops/$col?perpage=50&page=$page")"
+      cnt="$(echo "$resp" | jq '.items | length')"
+      [[ "$cnt" -eq 0 ]] && break
+      echo "$resp" | jq -c '.items[] | select(.broken==true) | {id: ._id, title, link}'
+      found=$((found + $(echo "$resp" | jq '[.items[]|select(.broken==true)]|length')))
+      page=$((page+1))
+    done
+    echo "# broken gesamt: $found" >&2
+    ;;
+  duplicates)
+    col="${1:--1}"; page=0; tmp="$(mktemp)"
+    while :; do
+      resp="$(req GET "/raindrops/$col?perpage=50&page=$page")"
+      cnt="$(echo "$resp" | jq '.items | length')"
+      [[ "$cnt" -eq 0 ]] && break
+      echo "$resp" | jq -r '.items[] | "\(.link)\t\(._id)\t\(.title)"' >> "$tmp"
+      page=$((page+1))
+    done
+    # Gruppen mit gleicher URL (>1)
+    awk -F'\t' '{c[$1]++; ids[$1]=ids[$1]","$2; t[$1]=$3} END{for(u in c) if(c[u]>1) printf "%d\t%s\t%s\n", c[u], u, ids[u]}' "$tmp" | sort -rn
+    dupes="$(awk -F'\t' '{c[$1]++} END{n=0; for(u in c) if(c[u]>1) n++; print n}' "$tmp")"
+    total="$(wc -l < "$tmp")"
+    echo "# $total URLs gesamt, $dupes doppelte URL-Gruppen" >&2
+    rm -f "$tmp"
+    ;;
+  backup)
+    dir="${1:-backups}"; mkdir -p "$dir"
+    ts="$(date +%Y%m%d-%H%M%S)"
+    out="$dir/raindrop-backup-$ts.json"
+    echo "# Backup läuft → $out" >&2
+    cols="$(req GET "/collections" | jq '.items')"
+    kids="$(req GET "/collections/childrens" | jq '.items')"
+    page=0; itemsfile="$(mktemp)"; echo "[]" > "$itemsfile"
+    total=0
+    while :; do
+      resp="$(req GET "/raindrops/-1?perpage=50&page=$page&sort=-created")"
+      cnt="$(echo "$resp" | jq '.items | length')"
+      [[ "$cnt" -eq 0 ]] && break
+      jq -s '.[0] + .[1].items' "$itemsfile" <(echo "$resp") > "$itemsfile.tmp" && mv "$itemsfile.tmp" "$itemsfile"
+      total=$((total+cnt))
+      echo "#   Seite $page: +$cnt (gesamt $total)" >&2
+      page=$((page+1))
+    done
+    jq -n --argjson cols "$cols" --argjson kids "$kids" \
+      --slurpfile items "$itemsfile" --arg ts "$ts" \
+      '{exported_at:$ts, collections:$cols, child_collections:$kids, raindrops:$items[0], count:($items[0]|length)}' > "$out"
+    rm -f "$itemsfile"
+    echo "# Fertig: $total Bookmarks gesichert in $out" >&2
+    echo "$out"
     ;;
   get)
     id="${1:?id fehlt}"
