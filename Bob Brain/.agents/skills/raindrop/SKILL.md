@@ -70,14 +70,41 @@ Alle Aktionen laufen über ein Script:
 ./scripts/raindrop.sh tag-drop "tag1,tag2"                 # Tag(s) global löschen
 ```
 
-## Workflow-Konzept (Bob Brain)
-**Collections = Bereiche** (ein Link lebt in genau einem), **Tags = Themen** (querschnittlich).
-Status-Tags für die Sichtung: nur `inbox` (default/ungesichtet), `to-explore`, `reference`.
+## Workflow (Bob Brain × Dima)
 
-Weekly-Review-Loop:
-1. `inbox 20` → ungesichtete Items mit excerpt ziehen
-2. Pro Item bewerten: löschen / `status ... reference` / `status ... to-explore` / Info extrahieren
-3. `move`/`batch-move` in die passende Bereichs-Collection
+**Grundprinzip:** Der **Ort** ist der Status. Ein Link gilt als gesichtet, wenn er **Unsorted verlässt**.
+Unsorted (0) tendiert gegen 0. Collections = Bereiche, Tags = Themen.
+
+```
+Unsorted (Eingang) → Bob sortiert vor → Dima entscheidet → Link einsortiert / Archiv / ⭐ / weg
+```
+
+### Rollen
+- **Dima = erfassen:** Speichert Links wie gewohnt (LinkedIn/Twitter/Browser/Mobile).
+  Landet automatisch in **Unsorted**. Kein Taggen, kein Nachdenken nötig.
+- **Bob = sichten/bewerten/aufbereiten:** Auf Zuruf ("mach einen Batch").
+- **Dima = entscheiden:** Überfliegt Bobs Vorschläge, sagt "alle ok" oder korrigiert einzeln.
+
+### Digest-Batch (so führt Bob es aus)
+1. N neueste/älteste **echte** Unsorted-Items holen (Filter `collection.$id == -1`):
+   `./scripts/raindrop.sh get <id>` bzw. Seite aus `/raindrops/0?sort=-created`.
+2. Pro Link aufbereiten: **1–2-Satz-Zusammenfassung** (aus `title`+`excerpt`, ggf. Seite lesen) +
+   **Vorschlag**: Bereich (Collection) + saubere Tags (aus dem 100er-Kernvokabular) + **Aktion**:
+   - 🗑 löschen (`delete`) · 🗄 Archiv (`move ... 90`) · 📁 Bereich (`move ... <col>`) · ⭐ to-explore
+3. Fehltags proaktiv korrigieren (falsch gesetzte Tags ersetzen).
+4. Nach Dimas OK ausführen: `update <id> tags "..."` + `move <id> <col>` (oder `delete`).
+5. Standard-Batchgröße: 20. Demo/klein: 5. Altbestand: größer + nur Zweifelsfälle vorlegen.
+
+### ⭐ To-Explore
+Die sichtbare Liste "das will ich wirklich angehen" (eigene Collection). Löst das alte Problem
+"taggen und nie wieder anschauen". Reine Nachschlage-Links → Bereich/Archiv statt to-explore.
+
+### Tag-Konvention
+klein · englisch · Singular · Personen mit `@name` · Mehrwort `mit-bindestrich`.
+Keine Status-Tags (Status = Ort). Vokabular/Referenz: `notes/raindrop-tags-vorschlag.md`.
+
+### Merksatz
+> Dima wirft rein. Bob sortiert vor. Dima entscheidet in Minuten. Unsorted geht auf 0.
 
 ## Hinweise
 - `collectionId` `0` = Unsorted, `-1` = alle, `-99` = Trash.
