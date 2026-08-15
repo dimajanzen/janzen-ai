@@ -32,41 +32,45 @@ Alle Aktionen laufen über ein Script:
 ./scripts/raindrop.sh <command> [args...]
 ```
 
-### Collections auflisten
+### Lesen / Suchen
 ```bash
-./scripts/raindrop.sh collections
+./scripts/raindrop.sh collections               # alle Collections (mit Parent)
+./scripts/raindrop.sh tree                       # Collections als Hierarchie
+./scripts/raindrop.sh stats                      # Anzahl Links je Collection
+./scripts/raindrop.sh list [collectionId] [n]    # Bookmarks (0=Unsorted, -1=alle)
+./scripts/raindrop.sh get <id>                   # volle Details: excerpt, note, tags, highlights
+./scripts/raindrop.sh search "begriff" [colId]   # Volltext-/Tag-Suche (#tag)
+./scripts/raindrop.sh inbox [n]                  # ungesichtete Inbox-Items (ohne Status-Tag) + excerpt
 ```
 
-### Bookmarks suchen / auflisten
+### Erfassen / Ändern
 ```bash
-./scripts/raindrop.sh list                      # alle (Collection 0 = Unsorted)
-./scripts/raindrop.sh list <collectionId>       # in bestimmter Collection
-./scripts/raindrop.sh search "suchbegriff"      # Volltextsuche
-./scripts/raindrop.sh search "#tag begriff"     # nach Tag + Text
+./scripts/raindrop.sh add "https://example.com" "Titel" "tag1,tag2" <colId>
+./scripts/raindrop.sh update <id> <title|tags|collection|note|excerpt|important> "wert"
+./scripts/raindrop.sh move <id> <collectionId>              # verschieben
+./scripts/raindrop.sh tag-add <id> "tag1,tag2"             # Tags ergänzen (bestehende bleiben)
+./scripts/raindrop.sh tag-remove <id> "tag1"               # einzelne Tags entfernen
+./scripts/raindrop.sh status <id> <inbox|to-explore|reference>   # Workflow-Status setzen
+./scripts/raindrop.sh delete <id>
 ```
 
-### Bookmark hinzufügen
+### Batch / Aufräumen
 ```bash
-./scripts/raindrop.sh add "https://example.com"
-./scripts/raindrop.sh add "https://example.com" "Titel" "tag1,tag2" <collectionId>
+./scripts/raindrop.sh batch-move <colId> "id1,id2,id3"     # mehrere verschieben
+./scripts/raindrop.sh create-collection "Titel" [parentId] # neue (Unter-)Collection
+./scripts/raindrop.sh tags [collectionId]                  # Tags mit Count
+./scripts/raindrop.sh tag-rename "alt" "neu"               # Tag umbenennen/zusammenführen (global)
+./scripts/raindrop.sh tag-drop "tag1,tag2"                 # Tag(s) global löschen
 ```
 
-### Bookmark aktualisieren
-```bash
-./scripts/raindrop.sh update <raindropId> title "Neuer Titel"
-./scripts/raindrop.sh update <raindropId> tags "tag1,tag2"
-./scripts/raindrop.sh update <raindropId> collection <collectionId>
-```
+## Workflow-Konzept (Bob Brain)
+**Collections = Bereiche** (ein Link lebt in genau einem), **Tags = Themen** (querschnittlich).
+Status-Tags für die Sichtung: nur `inbox` (default/ungesichtet), `to-explore`, `reference`.
 
-### Bookmark löschen
-```bash
-./scripts/raindrop.sh delete <raindropId>
-```
-
-### Tags auflisten
-```bash
-./scripts/raindrop.sh tags
-```
+Weekly-Review-Loop:
+1. `inbox 20` → ungesichtete Items mit excerpt ziehen
+2. Pro Item bewerten: löschen / `status ... reference` / `status ... to-explore` / Info extrahieren
+3. `move`/`batch-move` in die passende Bereichs-Collection
 
 ## Hinweise
 - `collectionId` `0` = Unsorted, `-1` = alle, `-99` = Trash.
