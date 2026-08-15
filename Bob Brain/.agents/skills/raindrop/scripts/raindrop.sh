@@ -153,7 +153,7 @@ case "$cmd" in
     # Pro Collection ueber MEHRERE Sortierungen sammeln + per _id dedupen.
     # Grund: bei gleichen created-Timestamps ueberspringt eine einzelne Sortierung
     # an Seitengrenzen Eintraege. Die Union mehrerer Sortierungen faengt alle.
-    SORTS=("-created" "-sort" "title" "domain")
+    SORTS=("-created" "-sort")  # 2 Sorts genuegen (Abbruch sobald keine neuen Items); mehr nur bei Tie-Verdacht
     allcols="0 $(jq -n --argjson r "$cols" --argjson k "$kids" '($r + $k) | map(._id) | unique | .[]')"  # 0 = Unsorted mitsichern
     for col in $allcols; do
       before="$(jq 'length' "$itemsfile")"
