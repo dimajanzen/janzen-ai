@@ -18,8 +18,20 @@ peojects→project · plabook→playbook
 blub t da pu li mn noe mal mi mol qs conte mark MPV Core Herdr ser pal rev lib log loop spin urge
 => 355 → 331
 
-## Stufe C — Kern-Vokabular & Konvention (going forward, offen)
+## Stufe C — Kern-Vokabular & Konvention (teilweise erledigt ✅)
 Regel: immer klein, englisch, Singular-Nomen. Status = Ort (nicht Tag).
+
+### Umgesetzt
+- **Personen mit `@`-Präfix:** @dima @karpathy @adam @merath @dan @ralph @eve @alex @enzo @levelsio @ravi
+- **Mehrwort-Tags mit Bindestrich:** ai-first, cold-calling, personal-brand, cold-email,
+  ai-act, founder-led, lead-magnet, sales-navigator
+- (`sei`, `clay` bewusst nicht als Person behandelt – mehrdeutig bzw. Tool)
+
+### Konvention (going forward)
+- Personen: `@name` · Mehrwort: `mit-bindestrich` · sonst: klein, englisch, Singular
+- Status = Ort (Unsorted → To-Explore → Bereich → Archiv), keine Status-Tags mehr
+
+### Kern-Vokabular (Referenz)
 - 🤖 Tech/Tools: ai agents llm claude codex cursor mcp rag n8n dotnet react docker api prompts memory obsidian crawling
 - 📈 GTM/Sales/Mktg: sales marketing seo gtm content outbound cold-calling crm icp pricing abm
 - 🛒 Product/E-Com: pim ecommerce magento shopware
