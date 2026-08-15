@@ -54,7 +54,8 @@ Usage: raindrop.sh <command> [args]
   get <id>                        Volle Details eines Bookmarks (inkl. excerpt, note, highlights)
   search "<query>" [collectionId] Volltext-/Tag-Suche (#tag)
   inbox [n]                       Ungesichtete Inbox-Items (ohne Status-Tag) für Review, mit excerpt
-  stats                           Übersicht: Anzahl je Collection
+  stats                           Übersicht: Anzahl je Collection (inkl. Unsorted)
+  move-before <srcCol> <dstCol> <YYYY-MM-DD>  Alle vor Datum verschieben (Amnestie)
   broken [collectionId]           Tote/broken Links finden
   duplicates [collectionId]       Doppelte URLs finden
   backup [zielordner]             Vollständiges Backup (Collections + alle Bookmarks) als JSON
@@ -153,7 +154,7 @@ case "$cmd" in
     # Grund: bei gleichen created-Timestamps ueberspringt eine einzelne Sortierung
     # an Seitengrenzen Eintraege. Die Union mehrerer Sortierungen faengt alle.
     SORTS=("-created" "-sort" "title" "domain")
-    allcols="$(jq -n --argjson r "$cols" --argjson k "$kids" '($r + $k) | map(._id) | unique | .[]')"
+    allcols="0 $(jq -n --argjson r "$cols" --argjson k "$kids" '($r + $k) | map(._id) | unique | .[]')"  # 0 = Unsorted mitsichern
     for col in $allcols; do
       before="$(jq 'length' "$itemsfile")"
       for s in "${SORTS[@]}"; do
@@ -198,7 +199,20 @@ case "$cmd" in
           | {id: ._id, title, link, excerpt, tags}'
     ;;
   stats)
-    req GET "/collections" | jq -r '.items[] | "\(.count)\t\(.title)"' | sort -rn
+    uns="$(req GET "/raindrops/0?perpage=1" | jq '.count')"
+    { echo -e "${uns}\t(0) Unsorted"; req GET "/collections" | jq -r '.items[] | "\(.count)\t\(.title)"'; } | sort -rn
+    ;;
+  move-before)
+    src="${1:?srcCol fehlt}"; dst="${2:?dstCol fehlt}"; date="${3:?datum YYYY-MM-DD fehlt}"; moved=0
+    while :; do
+      resp="$(req_retry "/raindrops/$src?perpage=50&sort=created")" || break
+      ids="$(printf '%s' "$resp" | jq --arg d "$date" '[.items[] | select(.created < $d) | ._id]')"
+      cnt="$(printf '%s' "$ids" | jq 'length')"
+      [[ "$cnt" -eq 0 ]] && break
+      req PUT "/raindrops/$src" -d "$(jq -n --argjson ids "$ids" --argjson v "$dst" '{ids:$ids, collection:{"$id":$v}}')" >/dev/null
+      moved=$((moved+cnt)); echo "#   verschoben (vor $date): $moved" >&2; sleep 1
+    done
+    echo "{\"moved\": $moved}"
     ;;
   add)
     url="${1:?url fehlt}"; title="${2:-}"; tags="${3:-}"; col="${4:-0}"
