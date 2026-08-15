@@ -60,8 +60,11 @@ Alle Aktionen laufen über ein Script:
 
 ### Batch / Aufräumen
 ```bash
-./scripts/raindrop.sh batch-move <colId> "id1,id2,id3"     # mehrere verschieben
+./scripts/raindrop.sh batch-move <srcCol> <dstCol> "id1,id2"  # mehrere verschieben
+./scripts/raindrop.sh move-all <srcCol> <dstCol>           # ganze Collection verschieben
 ./scripts/raindrop.sh create-collection "Titel" [parentId] # neue (Unter-)Collection
+./scripts/raindrop.sh rename-collection <id> "Titel"       # Collection umbenennen
+./scripts/raindrop.sh delete-collection <id>              # leere Collection löschen
 ./scripts/raindrop.sh tags [collectionId]                  # Tags mit Count
 ./scripts/raindrop.sh tag-rename "alt" "neu"               # Tag umbenennen/zusammenführen (global)
 ./scripts/raindrop.sh tag-drop "tag1,tag2"                 # Tag(s) global löschen

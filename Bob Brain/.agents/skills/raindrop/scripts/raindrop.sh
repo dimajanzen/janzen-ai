@@ -69,8 +69,11 @@ Usage: raindrop.sh <command> [args]
   delete <id>                     Bookmark löschen
 
   -- Batch / Aufräumen --
-  batch-move <collectionId> "id1,id2,..."     Mehrere verschieben
+  batch-move <srcCol> <dstCol> "id1,id2,..."  Mehrere verschieben (Quelle->Ziel)
+  move-all <srcCol> <dstCol>                   GANZE Collection verschieben
   create-collection "<title>" [parentId]      Neue Collection (optional als Unterordner)
+  rename-collection <id> "<title>"             Collection umbenennen
+  delete-collection <id>                       Leere Collection loeschen
   tags [collectionId]             Tags auflisten (mit Count)
   tag-rename "<alt>" "<neu>"       Tag umbenennen/zusammenführen (global)
   tag-drop "<tag1,tag2>"           Tag(s) global löschen
@@ -245,9 +248,29 @@ case "$cmd" in
     req PUT "/raindrop/$id" -d "$(jq -n --argjson t "$new" '{tags:$t}')" | jq '.item | {id: ._id, tags}'
     ;;
   batch-move)
-    col="${1:?collectionId fehlt}"; ids="${2:?ids fehlen}"
+    src="${1:?srcCol fehlt}"; dst="${2:?dstCol fehlt}"; ids="${3:?ids fehlen}"
     idsjson="$(printf '%s' "$ids" | jq -R 'split(",")|map(gsub("^ +| +$";"")|tonumber)')"
-    req PUT "/raindrops/0" -d "$(jq -n --argjson ids "$idsjson" --argjson v "$col" '{ids:$ids, collection:{"$id":$v}}')" | jq '{modified: .modified}'
+    req PUT "/raindrops/$src" -d "$(jq -n --argjson ids "$idsjson" --argjson v "$dst" '{ids:$ids, collection:{"$id":$v}}')" | jq '{modified: .modified}'
+    ;;
+  move-all)
+    src="${1:?srcCol fehlt}"; dst="${2:?dstCol fehlt}"; moved=0
+    while :; do
+      resp="$(req_retry "/raindrops/$src?perpage=50")" || break
+      ids="$(printf '%s' "$resp" | jq '[.items[]._id]')"
+      cnt="$(printf '%s' "$ids" | jq 'length')"
+      [[ "$cnt" -eq 0 ]] && break
+      req PUT "/raindrops/$src" -d "$(jq -n --argjson ids "$ids" --argjson v "$dst" '{ids:$ids, collection:{"$id":$v}}')" >/dev/null
+      moved=$((moved+cnt)); echo "#   verschoben: $moved" >&2; sleep 1
+    done
+    echo "{\"moved\": $moved}"
+    ;;
+  rename-collection)
+    id="${1:?id fehlt}"; title="${2:?titel fehlt}"
+    req PUT "/collection/$id" -d "$(jq -n --arg t "$title" '{title:$t}')" | jq '.item | {id: ._id, title}'
+    ;;
+  delete-collection)
+    id="${1:?id fehlt}"
+    req DELETE "/collection/$id" | jq '{result}'
     ;;
   create-collection)
     title="${1:?titel fehlt}"; parent="${2:-}"
