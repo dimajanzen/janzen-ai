@@ -158,6 +158,7 @@ case "$cmd" in
     for col in $allcols; do
       before="$(jq 'length' "$itemsfile")"
       for s in "${SORTS[@]}"; do
+        pre_sort="$(jq 'length' "$itemsfile")"
         page=0
         while :; do
           if ! resp="$(req_retry "/raindrops/$col?perpage=50&page=$page&sort=$s")"; then
@@ -169,6 +170,9 @@ case "$cmd" in
           jq -s '(.[0] + .[1].items) | unique_by(._id)' "$itemsfile" <(printf '%s' "$resp") > "$itemsfile.tmp" && mv "$itemsfile.tmp" "$itemsfile"
           page=$((page+1))
         done
+        post_sort="$(jq 'length' "$itemsfile")"
+        # Sortier-Durchlauf brachte keine neuen Items -> weitere Sorts fuer diese Collection ueberspringen
+        [[ "$post_sort" -eq "$pre_sort" && "$s" != "${SORTS[0]}" ]] && break
       done
       after="$(jq 'length' "$itemsfile")"
       echo "#   Collection $col: +$((after-before)) (unique gesamt $after)" >&2
@@ -203,14 +207,36 @@ case "$cmd" in
     { echo -e "${uns}\t(0) Unsorted"; req GET "/collections" | jq -r '.items[] | "\(.count)\t\(.title)"'; } | sort -rn
     ;;
   move-before)
+    # Alle Items mit created < <date> aus <srcCol> nach <dstCol>.
+    # Robust gegen Raindrop-Index-Lag: filtert pro Item am aktuellen collection-Feld
+    # (== srcCol), nicht am "Verschwinden" aus dem Listing. Vorwaerts-Pagination,
+    # Stop sobald created >= date erreicht (aufsteigend sortiert).
     src="${1:?srcCol fehlt}"; dst="${2:?dstCol fehlt}"; date="${3:?datum YYYY-MM-DD fehlt}"; moved=0
+    # srcCol im Item-JSON: Unsorted(0) erscheint als -1
+    srcmark="$src"; [[ "$src" == "0" ]] && srcmark="-1"
     while :; do
-      resp="$(req_retry "/raindrops/$src?perpage=50&sort=created")" || break
-      ids="$(printf '%s' "$resp" | jq --arg d "$date" '[.items[] | select(.created < $d) | ._id]')"
-      cnt="$(printf '%s' "$ids" | jq 'length')"
-      [[ "$cnt" -eq 0 ]] && break
-      req PUT "/raindrops/$src" -d "$(jq -n --argjson ids "$ids" --argjson v "$dst" '{ids:$ids, collection:{"$id":$v}}')" >/dev/null
-      moved=$((moved+cnt)); echo "#   verschoben (vor $date): $moved" >&2; sleep 1
+      page=0; passids="[]"; stop=0
+      while :; do
+        resp="$(req_retry "/raindrops/$src?perpage=50&page=$page&sort=created")" || { stop=1; break; }
+        cnt="$(printf '%s' "$resp" | jq '.items | length')"
+        [[ "$cnt" -eq 0 ]] && { stop=1; break; }
+        pageids="$(printf '%s' "$resp" | jq --arg d "$date" --argjson m "$srcmark" \
+          '[.items[] | select(.created < $d and (.collection["$id"]==$m)) | ._id]')"
+        passids="$(jq -n --argjson a "$passids" --argjson b "$pageids" '($a+$b)|unique')"
+        # aufsteigend: sobald ein Item created>=date auftaucht, ist der Rest neuer -> Pass fertig
+        hasnew="$(printf '%s' "$resp" | jq --arg d "$date" '[.items[]|select(.created>=$d)]|length')"
+        [[ "$hasnew" -gt 0 ]] && break
+        page=$((page+1))
+      done
+      n="$(printf '%s' "$passids" | jq 'length')"
+      [[ "$n" -eq 0 ]] && break
+      # in 50er-Chunks verschieben (PUT auf -1 bewegt zuverlaessig auch aus Unsorted)
+      echo "$passids" | jq -c '[_nwise(50)][]' | while read -r chunk; do
+        req PUT "/raindrops/-1" -d "$(jq -n --argjson ids "$chunk" --argjson v "$dst" '{ids:$ids, collection:{"$id":$v}}')" >/dev/null
+        sleep 0.4
+      done
+      moved=$((moved+n)); echo "#   Pass verschoben: +$n (gesamt $moved)" >&2
+      [[ "$stop" -eq 1 && "$n" -eq 0 ]] && break
     done
     echo "{\"moved\": $moved}"
     ;;
