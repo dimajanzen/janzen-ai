@@ -158,9 +158,14 @@ def rd_all_collection_ids():
     return ids
 
 def rd_bulk_create(items, collection):
-    """items: list of dicts {link, tags}. Legt bis 100 an. Gibt Anzahl erfolgreicher + Liste links."""
-    payload = [{"link": it["link"], "collection": {"$id": collection},
-                "tags": it["tags"], "pleaseParse": {}} for it in items]
+    """items: list of dicts {link, tags, [title]}. Legt bis 100 an. Gibt Anzahl erfolgreicher."""
+    payload = []
+    for it in items:
+        d = {"link": it["link"], "collection": {"$id": collection},
+             "tags": it["tags"], "pleaseParse": {}}
+        if it.get("title"):
+            d["title"] = it["title"]
+        payload.append(d)
     st, j = http("POST", "https://api.raindrop.io/rest/v1/raindrops",
                  headers=rd_headers(), data={"items": payload})
     if j.get("result"):
@@ -252,6 +257,36 @@ def add_rddone(ids): _append(RDDONE_FILE, ids)
 
 # ---------- Quelle ----------
 URL_RE = re.compile(r"^\s*(https?://|www\.)\S+\s*$", re.I)
+URL_FIND = re.compile(r"https?://\S+", re.I)
+
+def load_note_link_tasks():
+    """'Getarnte Bookmarks': Titel ist KEIN reiner Link, aber die Notiz enthaelt einen Link."""
+    files = sorted(glob.glob(os.path.join(ROOT, "backups", "mstodo_backup_*.json")))
+    if not files:
+        sys.exit("Kein To-Do-Backup gefunden.")
+    src = files[-1]
+    with open(src) as f:
+        data = json.load(f)
+    out = []
+    for lst in data["lists"]:
+        for t in lst["tasks"]:
+            title = t.get("title", "")
+            if URL_RE.match(title):        # reine Link-Titel: anderer Modus
+                continue
+            note = (t.get("body") or {}).get("content", "") or ""
+            m2 = URL_FIND.search(note)
+            if not m2:
+                continue
+            url = m2.group(0).rstrip(").,;'\"")
+            clean_title = title.split("\n")[0].strip()[:250] or None
+            created = t.get("createdDateTime", "")
+            out.append({
+                "listId": lst["id"], "taskId": t["id"],
+                "url": url, "title": clean_title, "created": created,
+                "col": ARCHIV_COL if (created and created < CUTOFF) else UNSORTED_COL,
+            })
+    return src, out
+
 def load_link_tasks():
     files = sorted(glob.glob(os.path.join(ROOT, "backups", "mstodo_backup_*.json")))
     if not files:
@@ -274,8 +309,8 @@ def load_link_tasks():
     return src, out
 
 # ---------- Plan / Run ----------
-def build_worklist(limit):
-    src, tasks = load_link_tasks()
+def build_worklist(limit, source=load_link_tasks):
+    src, tasks = source()
     index = load_index()
     done = load_done()
     rddone = load_rddone()
@@ -314,7 +349,7 @@ def run(work):
         batch = [w for w in work if not w["dup"] and w["col"] == col]
         for i in range(0, len(batch), 100):
             chunk = batch[i:i+100]
-            items = [{"link": w["url"], "tags": [TAG]} for w in chunk]
+            items = [{"link": w["url"], "tags": [TAG], "title": w.get("title")} for w in chunk]
             n = rd_bulk_create(items, col)
             if n >= 1:
                 ids = [w["taskId"] for w in chunk]
@@ -354,6 +389,15 @@ def main():
         if "--yes" not in args:
             sys.exit("Sicherheit: 'run' braucht --yes")
         src, work = build_worklist(limit)
+        summarize(src, work)
+        run(work)
+    elif cmd == "plan-notes":
+        src, work = build_worklist(limit, source=load_note_link_tasks)
+        summarize(src, work)
+    elif cmd == "run-notes":
+        if "--yes" not in args:
+            sys.exit("Sicherheit: 'run-notes' braucht --yes")
+        src, work = build_worklist(limit, source=load_note_link_tasks)
         summarize(src, work)
         run(work)
     else:
