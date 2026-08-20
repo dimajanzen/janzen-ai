@@ -342,6 +342,75 @@ def load_note_link_tasks():
             })
     return src, out
 
+def ms_batch_patch(updates):
+    """updates: list of (listId, taskId, bodydict). PATCH via $batch (20er) mit Retry. Gibt Set ok taskIds."""
+    ok = set()
+    pending = list(updates)
+    attempt = 0
+    while pending and attempt < 12:
+        attempt += 1
+        tok = ms_token()
+        retry = []
+        for i in range(0, len(pending), 20):
+            chunk = pending[i:i+20]
+            reqs = [{"id": str(n), "method": "PATCH",
+                     "url": f"/me/todo/lists/{lid}/tasks/{tid}",
+                     "headers": {"Content-Type": "application/json"},
+                     "body": body}
+                    for n, (lid, tid, body) in enumerate(chunk)]
+            st, j = http("POST", "https://graph.microsoft.com/v1.0/$batch",
+                         headers={"Authorization": f"Bearer {tok}"},
+                         data={"requests": reqs})
+            resps = {int(r["id"]): r for r in j.get("responses", [])}
+            for n, item in enumerate(chunk):
+                r = resps.get(n); code = r.get("status", 0) if r else 0
+                if code in (200, 201):
+                    ok.add(item[1])
+                else:
+                    retry.append(item)
+            time.sleep(0.6)
+        if retry:
+            print(f"    patch: {len(retry)} offen, Retry-Runde {attempt}", file=sys.stderr)
+            time.sleep(3 * attempt)
+        pending = retry
+    return ok
+
+def declutter_titles(limit=None, dry=False):
+    """Aktive Tasks (ohne Archiv) mit Link im Titel: Link raus aus Titel, in Notiz packen."""
+    files = sorted(glob.glob(os.path.join(ROOT, "backups", "mstodo_backup_*.json")))
+    src = files[-1]
+    with open(src) as f:
+        data = json.load(f)
+    updates = []; preview = []
+    for lst in data["lists"]:
+        if lst["displayName"] == ARCH_LIST_NAME:
+            continue
+        for t in lst["tasks"]:
+            title = t.get("title", "")
+            urls = URL_FIND.findall(title)
+            if not urls:
+                continue
+            new_title = URL_FIND.sub("", title)
+            new_title = re.sub(r"\s+", " ", new_title).strip(" -–—:·|").strip()
+            if not new_title:
+                continue   # war doch reiner Link -> nicht anfassen
+            old_note = (t.get("body") or {}).get("content", "") or ""
+            link_block = "\n".join(u.rstrip(').,;\"') for u in urls)
+            new_note = link_block + (("\n\n" + old_note) if old_note.strip() else "")
+            body = {"title": new_title,
+                    "body": {"content": new_note, "contentType": "text"}}
+            updates.append((lst["id"], t["id"], body))
+            preview.append((title.split(chr(10))[0][:55], new_title[:45]))
+    if limit:
+        updates = updates[:limit]; preview = preview[:limit]
+    print(f"Quelle: {os.path.basename(src)} | zu entrümpeln: {len(updates)}", file=sys.stderr)
+    for a, b in preview[:12]:
+        print(f"  ALT: {a}\n  NEU: {b}", file=sys.stderr)
+    if dry:
+        return
+    ok = ms_batch_patch(updates)
+    print(f"Fertig: {len(ok)}/{len(updates)} Titel entrümpelt.", file=sys.stderr)
+
 def load_old_tasks():
     """Alle Tasks vor ARCH_CUTOFF (fuer Amnestie) aus allen Listen."""
     files = sorted(glob.glob(os.path.join(ROOT, "backups", "mstodo_backup_*.json")))
@@ -488,6 +557,8 @@ def main():
         if "--yes" not in args:
             sys.exit("Sicherheit: 'archive-old' braucht --yes")
         archive_old(limit)
+    elif cmd == "declutter-titles":
+        declutter_titles(limit, dry=("--yes" not in args))
     elif cmd == "plan":
         src, work = build_worklist(limit)
         summarize(src, work)
