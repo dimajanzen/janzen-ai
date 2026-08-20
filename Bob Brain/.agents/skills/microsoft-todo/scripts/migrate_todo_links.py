@@ -34,7 +34,11 @@ RDDONE_FILE = os.path.join(STATE_DIR, "raindrop_done_task_ids.txt") # schon in R
 ARCHIV_COL = 58559702
 UNSORTED_COL = 0
 TAG = "from-todo"
-CUTOFF = "2026-01-01"
+CUTOFF = "2026-01-01"          # Link-Migration: alt -> Raindrop-Archiv
+ARCH_CUTOFF = "2024-01-01"     # To-Do-Amnestie: alles davor -> Liste 'Archiv'
+ARCH_LIST_NAME = "\U0001F4E6 Archiv"
+ARCH_CREATED_FILE = os.path.join(STATE_DIR, "archived_created_task_ids.txt")  # Kopie in Archiv existiert
+ARCH_DONE_FILE = os.path.join(STATE_DIR, "archived_done_task_ids.txt")        # + aus Quelle geloescht
 
 # ---------- .env ----------
 def load_env():
@@ -111,6 +115,57 @@ def ms_token():
     if j.get("refresh_token"):
         MS_REFRESH = j["refresh_token"]; save_refresh(MS_REFRESH)
     return _access["tok"]
+
+def ms_get_or_create_list(name):
+    tok = ms_token()
+    st, j = http("GET", "https://graph.microsoft.com/v1.0/me/todo/lists?$top=100",
+                 headers={"Authorization": f"Bearer {tok}"})
+    for l in j.get("value", []):
+        if l.get("displayName") == name:
+            return l["id"]
+    st, j = http("POST", "https://graph.microsoft.com/v1.0/me/todo/lists",
+                 headers={"Authorization": f"Bearer {tok}"}, data={"displayName": name})
+    if "id" not in j:
+        sys.exit(f"Archiv-Liste anlegen fehlgeschlagen: {j}")
+    return j["id"]
+
+def ms_batch_create(list_id, tasks):
+    """tasks: list of dicts {srcId, title, note}. Legt Kopien in list_id an (Graph $batch, 20er),
+    mit Retry bei 429. Gibt Set erfolgreicher srcId."""
+    ok = set()
+    pending = list(tasks)
+    attempt = 0
+    while pending and attempt < 12:
+        attempt += 1
+        tok = ms_token()
+        retry = []
+        for i in range(0, len(pending), 20):
+            chunk = pending[i:i+20]
+            reqs = []
+            for n, t in enumerate(chunk):
+                body = {"title": t["title"] or "(ohne Titel)"}
+                if t.get("note"):
+                    body["body"] = {"content": t["note"], "contentType": "text"}
+                reqs.append({"id": str(n), "method": "POST",
+                             "url": f"/me/todo/lists/{list_id}/tasks",
+                             "headers": {"Content-Type": "application/json"},
+                             "body": body})
+            st, j = http("POST", "https://graph.microsoft.com/v1.0/$batch",
+                         headers={"Authorization": f"Bearer {tok}"},
+                         data={"requests": reqs})
+            resps = {int(r["id"]): r for r in j.get("responses", [])}
+            for n, t in enumerate(chunk):
+                r = resps.get(n); code = r.get("status", 0) if r else 0
+                if code in (200, 201):
+                    ok.add(t["srcId"])
+                else:
+                    retry.append(t)
+            time.sleep(0.6)
+        if retry:
+            print(f"    create: {len(retry)} offen, Retry-Runde {attempt}", file=sys.stderr)
+            time.sleep(3 * attempt)
+        pending = retry
+    return ok
 
 def ms_batch_delete(items):
     """items: list of (listId, taskId). Loescht robust in 20er-Batches mit Retry
@@ -287,6 +342,53 @@ def load_note_link_tasks():
             })
     return src, out
 
+def load_old_tasks():
+    """Alle Tasks vor ARCH_CUTOFF (fuer Amnestie) aus allen Listen."""
+    files = sorted(glob.glob(os.path.join(ROOT, "backups", "mstodo_backup_*.json")))
+    src = files[-1]
+    with open(src) as f:
+        data = json.load(f)
+    out = []
+    for lst in data["lists"]:
+        if lst["displayName"] == ARCH_LIST_NAME:
+            continue
+        for t in lst["tasks"]:
+            created = t.get("createdDateTime", "")
+            if created and created < ARCH_CUTOFF:
+                out.append({
+                    "listId": lst["id"], "srcId": t["id"],
+                    "title": t.get("title", "").split("\n")[0].strip()[:250],
+                    "note": (t.get("body") or {}).get("content", "") or "",
+                    "created": created,
+                })
+    return src, out
+
+def archive_old(limit=None):
+    src, tasks = load_old_tasks()
+    created = _load_set(ARCH_CREATED_FILE)
+    done = _load_set(ARCH_DONE_FILE)
+    work = [t for t in tasks if t["srcId"] not in done]
+    if limit:
+        work = work[:limit]
+    print(f"Quelle: {os.path.basename(src)}", file=sys.stderr)
+    print(f"Amnestie (<{ARCH_CUTOFF}): {len(tasks)} gesamt, {len(work)} offen", file=sys.stderr)
+    if not work:
+        print("Nichts zu tun.", file=sys.stderr); return
+    arch_id = ms_get_or_create_list(ARCH_LIST_NAME)
+    print(f"Archiv-Liste: {arch_id}", file=sys.stderr)
+    # 1) In Archiv kopieren (nur was noch nicht kopiert)
+    to_create = [t for t in work if t["srcId"] not in created]
+    if to_create:
+        ok = ms_batch_create(arch_id, to_create)
+        _append(ARCH_CREATED_FILE, list(ok))
+        created |= ok
+        print(f"  kopiert: {len(ok)}/{len(to_create)}", file=sys.stderr)
+    # 2) Aus Quelle loeschen (nur was sicher kopiert ist)
+    del_map = [(t["listId"], t["srcId"]) for t in work if t["srcId"] in created]
+    okd = ms_batch_delete(del_map)
+    _append(ARCH_DONE_FILE, list(okd))
+    print(f"Fertig: {len(created)} in Archiv, {len(okd)}/{len(del_map)} aus Quelle geloescht.", file=sys.stderr)
+
 def load_link_tasks():
     files = sorted(glob.glob(os.path.join(ROOT, "backups", "mstodo_backup_*.json")))
     if not files:
@@ -382,6 +484,10 @@ def main():
         limit = int(args[args.index("--limit") + 1])
     if cmd == "build-index":
         build_index()
+    elif cmd == "archive-old":
+        if "--yes" not in args:
+            sys.exit("Sicherheit: 'archive-old' braucht --yes")
+        archive_old(limit)
     elif cmd == "plan":
         src, work = build_worklist(limit)
         summarize(src, work)
