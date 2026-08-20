@@ -5,3 +5,6 @@
 # Logs
 *.log
 
+
+# Lokale Migrations-States (regenerierbar)
+.agents/skills/microsoft-todo/state/
