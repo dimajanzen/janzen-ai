@@ -4,3 +4,6 @@
 
 # Logs
 *.log
+
+# Lokale Backups (nicht committen)
+backups/
