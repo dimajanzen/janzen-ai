@@ -8,3 +8,7 @@
 
 # Lokale Migrations-States (regenerierbar)
 .agents/skills/microsoft-todo/state/
+
+# Python cache
+__pycache__/
+*.pyc
