@@ -65,6 +65,44 @@ App-Registrierung (Azure/Entra): Personal accounts only, Delegated `Tasks.ReadWr
 ./scripts/mstodo.sh create-list "Neue Liste"
 ```
 
+## Workflow (Bob × Dima) — so bleibt To Do sauber
+
+**Grundprinzip (wie bei Raindrop):** Der **Ort** ist der Status. Dima wirft rein,
+Bob sortiert vor, Dima entscheidet in Minuten. **"Aufgaben" = Eingang und tendiert gegen 0.**
+
+### Die 3 eisernen Regeln
+1. **Links gehören NICHT in To Do.** Ein reiner Link/Bookmark → immer nach Raindrop.
+   Landet doch mal einer in To Do, holt Bob ihn raus (`migrate_todo_links.py run` / `run-notes`).
+2. **"Aufgaben" ist die Inbox.** Dima wirft alles ungefiltert rein — kein Taggen, kein Nachdenken.
+3. **Fertig = weg.** Abgehakte Tasks werden regelmäßig gelöscht (kein Completed-Friedhof).
+
+### Rollen
+- **Dima = erfassen:** Neue To-dos schnell in "Aufgaben" (oder "Mein Tag"). Fertig.
+- **Bob = triagieren:** Auf Zuruf ("Bob, Inbox aufräumen") geht Bob die Inbox durch und schlägt pro Task vor:
+  - 🔗 **Link** → nach Raindrop (Tag `from-todo`)
+  - ✅ **echte Aufgabe** → richtige **Bereichsliste** (Company, Sales, Development, Me …) + optional 📅 Fälligkeit / ⭐ `importance high`
+  - 🗄 **veraltet** → Liste "📦 Archiv"
+  - 🗑 **Müll/Dublette** → löschen
+- **Dima = entscheiden:** Überfliegt Bobs Vorschläge, sagt "alle ok" oder korrigiert einzeln.
+
+### Rhythmus
+- **Laufend:** Dima erfasst in "Aufgaben".
+- **1× pro Woche (5 Min):** Bob-Triage der Inbox + erledigte löschen. → Inbox geht auf 0.
+- **Bei Bedarf:** "die abgeschlossenen löschen" (Bob räumt Completed weg).
+
+### Struktur
+- **"Aufgaben"** = Inbox (leer halten)
+- **Bereichslisten** = fertige Ablage nach Thema
+- **"📦 Archiv"** = alt, aber aufgehoben (reversibel)
+
+### Werkzeuge für die Triage
+- Erledigte löschen (Loop bis 0): `scripts/../state/del_loop.py` bzw. Bob löscht per `$batch`.
+- Titel entrümpeln (Link aus Titel → Notiz): `migrate_todo_links.py declutter-titles --yes`.
+- Link-Tasks nach Raindrop: `migrate_todo_links.py run` (reine Links) / `run-notes` (Link in Notiz).
+
+### Merksatz
+> Dima wirft rein. Bob sortiert vor. Dima entscheidet in Minuten. Links nach Raindrop. Fertig = weg.
+
 ## Hinweise
 - `<liste>` akzeptiert den **Namen** (z.B. "Aufgaben", "Tasks") oder die **Listen-ID**.
 - Fälligkeiten im Format `YYYY-MM-DD` (wird als UTC gesetzt).
