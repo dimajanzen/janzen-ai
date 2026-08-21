@@ -249,6 +249,47 @@ cmd_backup() {
   echo "$out"
 }
 
+cmd_delete_completed() {
+  local only="${1:-}"    # optional: Listenname/-ID; sonst ALLE Listen
+  local flt="%24filter=status%20eq%20%27completed%27&%24top=100"
+  [ -n "$ACCESS_TOKEN" ] || get_access_token
+  local total=0 round=0
+  while :; do
+    round=$((round+1))
+    local lids
+    if [ -n "$only" ]; then lids="$(resolve_list "$only")"; else
+      lids="$(api GET "/me/todo/lists?\$top=100" | jq -r '.value[].id')"; fi
+    local tmpd; tmpd="$(mktemp -d)"; : > "$tmpd/pairs"
+    while read -r lid; do
+      [ -z "$lid" ] && continue
+      local url="/me/todo/lists/$lid/tasks?$flt"
+      while [ -n "$url" ]; do
+        local page; page="$(api GET "$url")"
+        echo "$page" | jq -r --arg lid "$lid" '.value[]? | "\($lid)\t\(.id)"' >> "$tmpd/pairs"
+        url="$(echo "$page" | jq -r '."@odata.nextLink" // empty')"
+      done
+    done <<< "$lids"
+    local found; found="$(wc -l < "$tmpd/pairs" | tr -d ' ')"
+    if [ "$found" -eq 0 ]; then rm -rf "$tmpd"; break; fi
+    echo "  Runde $round: $found erledigte gefunden, lösche..." >&2
+    while IFS=$'\t' read -r lid tid; do
+      local tries=0 code
+      while [ $tries -lt 8 ]; do
+        code="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "$GRAPH/me/todo/lists/$lid/tasks/$tid" -H "Authorization: Bearer $ACCESS_TOKEN")"
+        case "$code" in
+          204|200|404) total=$((total+1)); break ;;
+          401) get_access_token; tries=$((tries+1)) ;;
+          429|500|502|503|504) tries=$((tries+1)); sleep $((tries+1)) ;;
+          *) tries=$((tries+1)); sleep 1 ;;
+        esac
+      done
+      sleep 0.12
+    done < "$tmpd/pairs"
+    rm -rf "$tmpd"
+  done
+  echo "✅ Erledigte gelöscht: $total" >&2
+}
+
 cmd_create_list() {
   api POST "/me/todo/lists" "$(jq -n --arg n "$1" '{displayName:$n}')" \
     | jq -r 'if .id then "✅ Liste angelegt: \(.displayName)\n   id: \(.id)" else "Fehler: \(.error.message // .)" end'
@@ -266,6 +307,7 @@ Microsoft To Do — Befehle:
   update <liste> <taskId> <title|note|due|importance> "wert"
   delete <liste> <taskId>
   create-list "Name"                     Neue Liste
+  delete-completed [liste]               Alle abgehakten löschen (default: alle Listen)
   backup [ordner]                        Vollständiges Backup (JSON, default: backups/)
 
 <liste> = Name (z.B. "Aufgaben") ODER Listen-ID.
@@ -284,6 +326,7 @@ case "$cmd" in
   update)       cmd_update "$@" ;;
   delete)       cmd_delete "$@" ;;
   create-list)  cmd_create_list "$@" ;;
+  delete-completed) cmd_delete_completed "$@" ;;
   backup)       cmd_backup "$@" ;;
   *) usage ;;
 esac
